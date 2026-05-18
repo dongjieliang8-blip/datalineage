@@ -82,11 +82,11 @@ class DataLineagePipeline:
 
         # Final summary
         console.print()
+        edges_count = len(self.lineage.get('lineage_edges', []))
         console.print(Panel.fit(
             f"[bold]Pipeline Complete[/]\n"
             f"Time: {elapsed:.1f}s\n"
-            f"Tables: {self.lineage.get('total_tables', '?')}\n"
-            f"Lineage Edges: {self.lineage.get('lineage_edges', []) and len(self.lineage.get('lineage_edges', [])) or '?'}\n"
+            f"Lineage Edges: {edges_count}\n"
             f"Compliance Score: {self.compliance.get('overall_score', 'N/A')}",
             border_style="green"
         ))
@@ -101,28 +101,7 @@ class DataLineagePipeline:
         }
 
     def _print_lineage_summary(self):
-        table = Table(title="Lineage Scan Results")
-        table.add_column("Metric", style="cyan")
-        table.add_column("Value", style="magenta")
-        table.add_row("Total Tables", str(self.lineage.get("total_tables", "?")))
-        table.add_row("Source Tables", str(self.lineage.get("source_tables", "?")))
-        table.add_row("Derived Tables", str(self.lineage.get("derived_tables", "?")))
-        edges = self.lineage.get("lineage_edges", [])
-        table.add_row("Lineage Edges", str(len(edges)))
-        metrics = self.lineage.get("metrics", {})
-        table.add_row("Max Chain Depth", str(metrics.get("max_chain_depth", "?")))
-        table.add_row("Orphan Columns", str(metrics.get("orphan_columns", "?")))
-        console.print(table)
-
-        # Print edge details
-        for edge in edges[:5]:
-            console.print(
-                f"  [dim]{edge.get('source_table', '?')}[/] -> "
-                f"[bold]{edge.get('target_table', '?')}[/] "
-                f"({edge.get('transformation', '?')})"
-            )
-        if len(edges) > 5:
-            console.print(f"  [dim]... and {len(edges) - 5} more edges[/]")
+        _print_dict_table("Lineage Scan Results", self.lineage)
 
     def _print_dependency_summary(self):
         graph = self.dependencies.get("dependency_graph", {})
@@ -188,3 +167,19 @@ class DataLineagePipeline:
             console.print(f"[yellow]Top Recommendations:[/]")
             for r in recs[:3]:
                 console.print(f"  {r.get('priority', '?')}. [{r.get('category', '?')}] {r.get('action', '')}")
+
+
+def _print_dict_table(title, data):
+    if not isinstance(data, dict):
+        console.print(f"[dim]{data}[/dim]")
+        return
+    table = Table(title=title)
+    table.add_column("字段", style="cyan")
+    table.add_column("值", style="magenta", max_width=80)
+    for k, v in data.items():
+        if isinstance(v, (dict, list)):
+            v_str = json.dumps(v, ensure_ascii=False, indent=None)[:120]
+        else:
+            v_str = str(v)
+        table.add_row(k, v_str)
+    console.print(table)
