@@ -1,0 +1,320 @@
+# Sample E-commerce Database Schema
+# Used for DataLineage demo pipeline
+
+database:
+  name: ecommerce_prod
+  dialect: postgresql
+
+tables:
+  raw_users:
+    type: source
+    description: Raw user data from registration system
+    columns:
+      - name: id
+        type: bigint
+        primary_key: true
+      - name: email
+        type: varchar(255)
+        pii: true
+        pii_type: email
+      - name: full_name
+        type: varchar(255)
+        pii: true
+        pii_type: name
+      - name: phone
+        type: varchar(50)
+        pii: true
+        pii_type: phone
+      - name: created_at
+        type: timestamp
+      - name: updated_at
+        type: timestamp
+
+  raw_orders:
+    type: source
+    description: Raw order data from transaction system
+    columns:
+      - name: order_id
+        type: bigint
+        primary_key: true
+      - name: user_id
+        type: bigint
+        foreign_key: raw_users.id
+      - name: product_id
+        type: bigint
+        foreign_key: raw_products.product_id
+      - name: quantity
+        type: integer
+      - name: unit_price
+        type: decimal(10,2)
+      - name: total_amount
+        type: decimal(10,2)
+      - name: status
+        type: varchar(50)
+      - name: created_at
+        type: timestamp
+
+  raw_products:
+    type: source
+    description: Product catalog from inventory system
+    columns:
+      - name: product_id
+        type: bigint
+        primary_key: true
+      - name: name
+        type: varchar(255)
+      - name: category
+        type: varchar(100)
+      - name: price
+        type: decimal(10,2)
+      - name: cost
+        type: decimal(10,2)
+      - name: stock_qty
+        type: integer
+      - name: created_at
+        type: timestamp
+
+  raw_payments:
+    type: source
+    description: Payment records from payment gateway
+    columns:
+      - name: payment_id
+        type: bigint
+        primary_key: true
+      - name: order_id
+        type: bigint
+        foreign_key: raw_orders.order_id
+      - name: amount
+        type: decimal(10,2)
+      - name: method
+        type: varchar(50)
+      - name: status
+        type: varchar(50)
+      - name: card_last4
+        type: varchar(4)
+        pii: true
+        pii_type: payment
+      - name: created_at
+        type: timestamp
+
+  dim_users:
+    type: derived
+    description: User dimension table, enriched from raw_users
+    columns:
+      - name: user_id
+        type: bigint
+        primary_key: true
+        upstream: raw_users.id
+      - name: email
+        type: varchar(255)
+        pii: true
+        pii_type: email
+        upstream: raw_users.email
+      - name: full_name
+        type: varchar(255)
+        upstream: raw_users.full_name
+      - name: order_count
+        type: integer
+        computed: true
+        upstream: raw_orders.order_id
+      - name: total_spent
+        type: decimal(12,2)
+        computed: true
+        upstream: raw_orders.total_amount
+      - name: first_order_date
+        type: timestamp
+        computed: true
+        upstream: raw_orders.created_at
+      - name: last_order_date
+        type: timestamp
+        computed: true
+        upstream: raw_orders.created_at
+      - name: segment
+        type: varchar(50)
+        computed: true
+        upstream: raw_orders.total_amount
+
+  dim_products:
+    type: derived
+    description: Product dimension table with profit calculations
+    columns:
+      - name: product_id
+        type: bigint
+        primary_key: true
+        upstream: raw_products.product_id
+      - name: name
+        type: varchar(255)
+        upstream: raw_products.name
+      - name: category
+        type: varchar(100)
+        upstream: raw_products.category
+      - name: profit_margin
+        type: decimal(5,4)
+        computed: true
+        upstream: raw_products.price
+      - name: avg_daily_sales
+        type: decimal(8,2)
+        computed: true
+        upstream: raw_orders.quantity
+
+  fact_orders:
+    type: derived
+    description: Order fact table joining orders with users and products
+    columns:
+      - name: order_id
+        type: bigint
+        primary_key: true
+        upstream: raw_orders.order_id
+      - name: user_id
+        type: bigint
+        upstream: raw_orders.user_id
+      - name: product_id
+        type: bigint
+        upstream: raw_orders.product_id
+      - name: user_email
+        type: varchar(255)
+        pii: true
+        pii_type: email
+        upstream: raw_users.email
+      - name: product_name
+        type: varchar(255)
+        upstream: raw_products.name
+      - name: quantity
+        type: integer
+        upstream: raw_orders.quantity
+      - name: total_amount
+        type: decimal(10,2)
+        upstream: raw_orders.total_amount
+      - name: payment_status
+        type: varchar(50)
+        upstream: raw_payments.status
+      - name: order_date
+        type: date
+        computed: true
+        upstream: raw_orders.created_at
+
+  agg_category_sales:
+    type: derived
+    description: Aggregated sales by category with trend metrics
+    columns:
+      - name: category
+        type: varchar(100)
+        primary_key: true
+        upstream: raw_products.category
+      - name: total_revenue
+        type: decimal(14,2)
+        computed: true
+        upstream: raw_orders.total_amount
+      - name: total_orders
+        type: bigint
+        computed: true
+        upstream: raw_orders.order_id
+      - name: avg_order_value
+        type: decimal(10,2)
+        computed: true
+        upstream: raw_orders.total_amount
+      - name: unique_customers
+        type: bigint
+        computed: true
+        upstream: raw_users.id
+      - name: revenue_growth_pct
+        type: decimal(6,4)
+        computed: true
+        upstream: raw_orders.created_at
+
+  agg_user_cohorts:
+    type: derived
+    description: User cohort analysis with retention metrics
+    columns:
+      - name: cohort_month
+        type: date
+        primary_key: true
+        upstream: raw_users.created_at
+      - name: cohort_size
+        type: bigint
+        computed: true
+        upstream: raw_users.id
+      - name: active_users_m1
+        type: bigint
+        computed: true
+        upstream: raw_orders.user_id
+      - name: active_users_m3
+        type: bigint
+        computed: true
+        upstream: raw_orders.user_id
+      - name: retention_rate
+        type: decimal(5,4)
+        computed: true
+        upstream: raw_users.id
+      - name: avg_lifetime_value
+        type: decimal(10,2)
+        computed: true
+        upstream: raw_orders.total_amount
+
+relationships:
+  - from: raw_orders.user_id
+    to: raw_users.id
+    type: foreign_key
+  - from: raw_orders.product_id
+    to: raw_products.product_id
+    type: foreign_key
+  - from: raw_payments.order_id
+    to: raw_orders.order_id
+    type: foreign_key
+  - from: dim_users.user_id
+    to: raw_users.id
+    type: derived
+  - from: dim_products.product_id
+    to: raw_products.product_id
+    type: derived
+  - from: fact_orders.order_id
+    to: raw_orders.order_id
+    type: derived
+  - from: fact_orders.user_email
+    to: raw_users.email
+    type: derived
+  - from: agg_category_sales.category
+    to: raw_products.category
+    type: aggregation
+  - from: agg_user_cohorts.cohort_month
+    to: raw_users.created_at
+    type: aggregation
+
+pipelines:
+  - name: etl_user_sync
+    type: etl
+    schedule: "0 2 * * *"
+    source: raw_users
+    target: dim_users
+    description: Nightly sync of user data with enrichment
+
+  - name: etl_order_facts
+    type: etl
+    schedule: "0 3 * * *"
+    sources: [raw_orders, raw_users, raw_products, raw_payments]
+    target: fact_orders
+    description: Nightly rebuild of order fact table
+
+  - name: etl_category_agg
+    type: etl
+    schedule: "0 4 * * *"
+    sources: [fact_orders, raw_products]
+    target: agg_category_sales
+    description: Daily category sales aggregation
+
+  - name: etl_cohort_analysis
+    type: etl
+    schedule: "0 5 1 * *"
+    sources: [raw_users, raw_orders]
+    target: agg_user_cohorts
+    description: Monthly cohort retention analysis
+
+  - name: report_revenue_dashboard
+    type: dashboard
+    sources: [agg_category_sales, fact_orders]
+    description: Executive revenue dashboard
+
+  - name: report_pii_access_log
+    type: report
+    sources: [dim_users, fact_orders]
+    description: PII access audit report for compliance
